@@ -1,6 +1,7 @@
 /*
  *  Global UI elements references
  */
+/* global $ */
 
 export const getUIElements = () => ({
   spinner: $('.ui-spinner'),
@@ -78,7 +79,8 @@ export const getUIElements = () => ({
   modal: {
     snippetImportProjects: $('#snippetImportModalProjects'),
     snippetImportSnippets: $('#snippetImportModalSnippets'),
-    revision: $('#revisionModal')
+    revision: $('#revisionModal'),
+    pandocExport: $('.pandoc-export-modal')
   }
 })
 

@@ -43,21 +43,23 @@ describe('Content security policies', function () {
 
   // beginnging Tests
   it('Disable CDN', function () {
-    let testconfig = defaultConfig
+    const testconfig = defaultConfig
     testconfig.useCDN = false
     mock('../lib/config', testconfig)
     csp = mock.reRequire('../lib/csp')
 
     assert(!csp.computeDirectives().scriptSrc.includes('https://cdnjs.cloudflare.com'))
+    assert(!csp.computeDirectives().scriptSrc.includes('https://cdn.jsdelivr.net'))
     assert(!csp.computeDirectives().scriptSrc.includes('https://cdn.mathjax.org'))
     assert(!csp.computeDirectives().styleSrc.includes('https://cdnjs.cloudflare.com'))
+    assert(!csp.computeDirectives().styleSrc.includes('https://cdn.jsdelivr.net'))
     assert(!csp.computeDirectives().styleSrc.includes('https://fonts.googleapis.com'))
     assert(!csp.computeDirectives().fontSrc.includes('https://cdnjs.cloudflare.com'))
     assert(!csp.computeDirectives().fontSrc.includes('https://fonts.gstatic.com'))
   })
 
   it('Disable Google Analytics', function () {
-    let testconfig = defaultConfig
+    const testconfig = defaultConfig
     testconfig.csp.addGoogleAnalytics = false
     mock('../lib/config', testconfig)
     csp = mock.reRequire('../lib/csp')
@@ -66,7 +68,7 @@ describe('Content security policies', function () {
   })
 
   it('Disable Disqus', function () {
-    let testconfig = defaultConfig
+    const testconfig = defaultConfig
     testconfig.csp.addDisqus = false
     mock('../lib/config', testconfig)
     csp = mock.reRequire('../lib/csp')
@@ -79,7 +81,7 @@ describe('Content security policies', function () {
   })
 
   it('Set ReportURI', function () {
-    let testconfig = defaultConfig
+    const testconfig = defaultConfig
     testconfig.csp.reportURI = 'https://example.com/reportURI'
     mock('../lib/config', testconfig)
     csp = mock.reRequire('../lib/csp')
@@ -88,7 +90,7 @@ describe('Content security policies', function () {
   })
 
   it('Set own directives', function () {
-    let testconfig = defaultConfig
+    const testconfig = defaultConfig
     mock('../lib/config', defaultConfig)
     csp = mock.reRequire('../lib/csp')
     const unextendedCSP = csp.computeDirectives()
@@ -119,6 +121,6 @@ describe('Content security policies', function () {
   it('Unchanged hash for reveal.js speaker notes plugin', function () {
     const hash = crypto.createHash('sha1')
     hash.update(fs.readFileSync(path.resolve(__dirname, '../node_modules/reveal.js/plugin/notes/notes.html'), 'utf8'), 'utf8')
-    assert.strictEqual(hash.digest('hex'), '471f3826880fac884a4a14faabc492bc854ae994')
+    assert.strictEqual(hash.digest('hex'), 'd5d872ae49b5db27f638b152e6e528837204d380')
   })
 })

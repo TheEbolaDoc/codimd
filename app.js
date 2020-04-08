@@ -7,7 +7,6 @@ var ejs = require('ejs')
 var passport = require('passport')
 var methodOverride = require('method-override')
 var cookieParser = require('cookie-parser')
-var compression = require('compression')
 var session = require('express-session')
 var SequelizeStore = require('connect-session-sequelize')(session.Store)
 var fs = require('fs')
@@ -25,35 +24,41 @@ var logger = require('./lib/logger')
 var response = require('./lib/response')
 var models = require('./lib/models')
 var csp = require('./lib/csp')
+const { Environment } = require('./lib/config/enum')
+
+const { versionCheckMiddleware, checkVersion } = require('./lib/web/middleware/checkVersion')
+
+function createHttpServer () {
+  if (config.useSSL) {
+    const ca = (function () {
+      let i, len
+      const results = []
+      for (i = 0, len = config.sslCAPath.length; i < len; i++) {
+        results.push(fs.readFileSync(config.sslCAPath[i], 'utf8'))
+      }
+      return results
+    })()
+    const options = {
+      key: fs.readFileSync(config.sslKeyPath, 'utf8'),
+      cert: fs.readFileSync(config.sslCertPath, 'utf8'),
+      ca: ca,
+      dhparam: fs.readFileSync(config.dhParamPath, 'utf8'),
+      requestCert: false,
+      rejectUnauthorized: false
+    }
+    return require('https').createServer(options, app)
+  } else {
+    return require('http').createServer(app)
+  }
+}
 
 // server setup
 var app = express()
-var server = null
-if (config.useSSL) {
-  var ca = (function () {
-    var i, len, results
-    results = []
-    for (i = 0, len = config.sslCAPath.length; i < len; i++) {
-      results.push(fs.readFileSync(config.sslCAPath[i], 'utf8'))
-    }
-    return results
-  })()
-  var options = {
-    key: fs.readFileSync(config.sslKeyPath, 'utf8'),
-    cert: fs.readFileSync(config.sslCertPath, 'utf8'),
-    ca: ca,
-    dhparam: fs.readFileSync(config.dhParamPath, 'utf8'),
-    requestCert: false,
-    rejectUnauthorized: false
-  }
-  server = require('https').createServer(options, app)
-} else {
-  server = require('http').createServer(app)
-}
+var server = createHttpServer()
 
 // logger
 app.use(morgan('combined', {
-  'stream': logger.stream
+  stream: logger.stream
 }))
 
 // socket io
@@ -64,7 +69,7 @@ io.engine.ws = new (require('ws').Server)({
 })
 
 // others
-var realtime = require('./lib/realtime.js')
+var realtime = require('./lib/realtime/realtime.js')
 
 // assign socket io to realtime
 realtime.io = io
@@ -76,9 +81,6 @@ app.use(methodOverride('_method'))
 var sessionStore = new SequelizeStore({
   db: models.sequelize
 })
-
-// compression
-app.use(compression())
 
 // use hsts to tell https users stick to this
 if (config.hsts.enable) {
@@ -113,7 +115,7 @@ if (config.csp.enable) {
 }
 
 i18n.configure({
-  locales: ['en', 'zh-CN', 'zh-TW', 'fr', 'de', 'ja', 'es', 'ca', 'el', 'pt', 'it', 'tr', 'ru', 'nl', 'hr', 'pl', 'uk', 'hi', 'sv', 'eo', 'da', 'ko', 'id'],
+  locales: ['en', 'zh-CN', 'zh-TW', 'fr', 'de', 'ja', 'es', 'ca', 'el', 'pt', 'it', 'tr', 'ru', 'nl', 'hr', 'pl', 'uk', 'hi', 'sv', 'eo', 'da', 'ko', 'id', 'sr'],
   cookie: 'locale',
   directory: path.join(__dirname, '/locales'),
   updateFiles: config.updateI18nFiles
@@ -154,7 +156,7 @@ server.on('resumeSession', function (id, cb) {
 })
 
 // middleware which blocks requests when we're too busy
-app.use(require('./lib/web/middleware/tooBusy'))
+app.use(require('./lib/middleware/tooBusy'))
 
 app.use(flash())
 
@@ -163,10 +165,15 @@ app.use(passport.initialize())
 app.use(passport.session())
 
 // check uri is valid before going further
-app.use(require('./lib/web/middleware/checkURIValid'))
+app.use(require('./lib/middleware/checkURIValid'))
 // redirect url without trailing slashes
-app.use(require('./lib/web/middleware/redirectWithoutTrailingSlashes'))
-app.use(require('./lib/web/middleware/codiMDVersion'))
+app.use(require('./lib/middleware/redirectWithoutTrailingSlashes'))
+app.use(require('./lib/middleware/codiMDVersion'))
+
+if (config.autoVersionCheck && process.env.NODE_ENV === Environment.production) {
+  checkVersion(app)
+  app.use(versionCheckMiddleware)
+}
 
 // routes need sessions
 // template files
@@ -181,11 +188,13 @@ app.locals.serverURL = config.serverURL
 app.locals.sourceURL = config.sourceURL
 app.locals.allowAnonymous = config.allowAnonymous
 app.locals.allowAnonymousEdits = config.allowAnonymousEdits
+app.locals.permission = config.permission
 app.locals.allowPDFExport = config.allowPDFExport
 app.locals.authProviders = {
   facebook: config.isFacebookEnable,
   twitter: config.isTwitterEnable,
   github: config.isGitHubEnable,
+  bitbucket: config.isBitbucketEnable,
   gitlab: config.isGitLabEnable,
   mattermost: config.isMattermostEnable,
   dropbox: config.isDropboxEnable,
@@ -199,23 +208,21 @@ app.locals.authProviders = {
   email: config.isEmailEnable,
   allowEmailRegister: config.allowEmailRegister
 }
+app.locals.versionInfo = {
+  latest: true,
+  versionItem: null
+}
 
 // Export/Import menu items
 app.locals.enableDropBoxSave = config.isDropboxEnable
 app.locals.enableGitHubGist = config.isGitHubEnable
 app.locals.enableGitlabSnippets = config.isGitlabSnippetsEnable
 
-app.use(require('./lib/web/baseRouter'))
-app.use(require('./lib/web/statusRouter'))
-app.use(require('./lib/web/auth'))
-app.use(require('./lib/web/historyRouter'))
-app.use(require('./lib/web/userRouter'))
-app.use(require('./lib/web/imageRouter'))
-app.use(require('./lib/web/noteRouter'))
+app.use(require('./lib/routes').router)
 
 // response not found if no any route matxches
 app.get('*', function (req, res) {
-  response.errorNotFound(res)
+  response.errorNotFound(req, res)
 })
 
 // socket.io secure
@@ -279,6 +286,7 @@ process.on('uncaughtException', function (err) {
 function handleTermSignals () {
   logger.info('CodiMD has been killed by signal, try to exit gracefully...')
   realtime.maintenance = true
+  realtime.terminate()
   // disconnect all socket.io clients
   Object.keys(io.sockets.sockets).forEach(function (key) {
     var socket = io.sockets.sockets[key]
@@ -299,6 +307,9 @@ function handleTermSignals () {
       })
     }
   }, 100)
+  setTimeout(() => {
+    process.exit(1)
+  }, 5000)
 }
 process.on('SIGINT', handleTermSignals)
 process.on('SIGTERM', handleTermSignals)
